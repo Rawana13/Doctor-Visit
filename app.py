@@ -2,7 +2,8 @@ import os
 import json
 import uuid
 import secrets
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timezone, timedelta
 from urllib.parse import urlencode
 
 import httpx
@@ -24,14 +25,13 @@ EPIC_BASE      = "https://fhir.epic.com/interconnect-fhir-oauth"
 EPIC_FHIR_R4   = f"{EPIC_BASE}/api/FHIR/R4"
 EPIC_AUTH_URL  = f"{EPIC_BASE}/oauth2/authorize"
 EPIC_TOKEN_URL = f"{EPIC_BASE}/oauth2/token"
-REDIRECT_URI   = "http://localhost:7860/callback"
+REDIRECT_URI   = "https://seizing-erased-anyway.ngrok-free.dev/callback"
 EPIC_CLIENT_ID = os.getenv("EPIC_CLIENT_ID", "")
 
 EPIC_SCOPES = (
     "openid fhirUser "
     "patient/Appointment.read patient/Appointment.write "
-    "patient/Slot.read patient/Schedule.read patient/Patient.read "
-    "launch/patient"
+    "patient/Slot.read patient/Schedule.read patient/Patient.read"
 )
 
 SPECIALTY_CODES = {
@@ -45,7 +45,116 @@ SPECIALTY_CODES = {
 }
 
 sessions: dict     = {}   # session_id → {access_token, patient_id}
-oauth_states: dict = {}   # state → {session_id, specialty}
+oauth_states: dict = {}   # state → {session_id, specialty, timeframe, reason}
+
+
+# ── Timeframe parser ──────────────────────────────────────────────────────────
+def parse_timeframe(timeframe: str) -> tuple[datetime, datetime]:
+    """Convert natural language timeframe into (start, end) datetime range."""
+    now   = datetime.now(timezone.utc)
+    lower = timeframe.lower().strip()
+
+    # Extract number + unit (e.g. "2 weeks", "3 months", "6 days")
+    match = re.search(r"(\d+)\s*(day|week|month|year)", lower)
+    if match:
+        n, unit = int(match.group(1)), match.group(2)
+        delta = {
+            "day":   timedelta(days=n),
+            "week":  timedelta(weeks=n),
+            "month": timedelta(days=n * 30),
+            "year":  timedelta(days=n * 365),
+        }[unit]
+        # Search window: start 3 days before target, end 3 days after
+        target = now + delta
+        return target - timedelta(days=3), target + timedelta(days=3)
+
+    # Fallback: search next 30 days
+    return now, now + timedelta(days=30)
+
+
+# ── Auto-book: find earliest slot and book it ─────────────────────────────────
+async def auto_book_appointment(
+    access_token: str,
+    patient_id: str,
+    specialty: str,
+    timeframe: str,
+    reason: str,
+) -> dict:
+    """Find the earliest available slot for the specialty and book it."""
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/fhir+json",
+        "Content-Type": "application/fhir+json",
+    }
+    start_dt, end_dt = parse_timeframe(timeframe)
+    start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_str   = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    code      = SPECIALTY_CODES.get(specialty.lower().strip())
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Search for free slots
+        params = {"status": "free", "start": [f"ge{start_str}", f"le{end_str}"]}
+        if code:
+            params["service-type"] = code
+
+        slot_resp = await client.get(
+            f"{EPIC_FHIR_R4}/Slot", params=params, headers=headers
+        )
+
+        if slot_resp.status_code != 200 or not slot_resp.json().get("entry"):
+            # Widen search to 60 days if nothing found in target window
+            params["start"] = [
+                f"ge{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}",
+                f"le{(datetime.now(timezone.utc) + timedelta(days=60)).strftime('%Y-%m-%dT%H:%M:%SZ')}"
+            ]
+            slot_resp = await client.get(
+                f"{EPIC_FHIR_R4}/Slot", params=params, headers=headers
+            )
+
+        bundle = slot_resp.json()
+        entries = bundle.get("entry", [])
+        if not entries:
+            return {"error": "No available slots found. Please call the clinic to schedule."}
+
+        # Pick the earliest slot
+        slots = [e["resource"] for e in entries if e.get("resource", {}).get("status") == "free"]
+        if not slots:
+            return {"error": "No free slots available in the search window."}
+
+        slots.sort(key=lambda s: s.get("start", ""))
+        best_slot = slots[0]
+        slot_id   = best_slot["id"]
+        slot_start = best_slot.get("start", "")
+
+        # Book it
+        appointment = {
+            "resourceType": "Appointment",
+            "status": "booked",
+            "description": reason or f"Follow-up: {specialty}",
+            "slot": [{"reference": f"Slot/{slot_id}"}],
+            "participant": [
+                {"actor": {"reference": f"Patient/{patient_id}"}, "status": "accepted"}
+            ],
+        }
+        if code:
+            appointment["serviceType"] = [
+                {"coding": [{"system": "http://snomed.info/sct", "code": code}]}
+            ]
+
+        book_resp = await client.post(
+            f"{EPIC_FHIR_R4}/Appointment", json=appointment, headers=headers
+        )
+
+        if book_resp.status_code not in (200, 201):
+            return {"error": f"Booking failed: {book_resp.text}"}
+
+        booked = book_resp.json()
+        return {
+            "appointment_id": booked.get("id"),
+            "start": slot_start,
+            "specialty": specialty,
+            "reason": reason,
+        }
 
 # ── Claude prompt ─────────────────────────────────────────────────────────────
 CLAUDE_PROMPT = """You are a helpful medical assistant. A patient just had a doctor's appointment and the visit was recorded.
@@ -183,7 +292,12 @@ def render_appointments(data: dict, session_id: str) -> str:
         else:
             state = secrets.token_urlsafe(16)
             sid   = str(uuid.uuid4())
-            oauth_states[state] = {"session_id": sid, "specialty": specialty}
+            oauth_states[state] = {
+                "session_id": sid,
+                "specialty":  specialty,
+                "timeframe":  timeframe,
+                "reason":     reason,
+            }
             params = {
                 "response_type": "code", "client_id": EPIC_CLIENT_ID,
                 "redirect_uri": REDIRECT_URI, "scope": EPIC_SCOPES,
@@ -194,8 +308,11 @@ def render_appointments(data: dict, session_id: str) -> str:
               style="display:inline-block;margin-top:10px;padding:8px 16px;background:#166534;
                      color:white;border-radius:6px;font-size:13px;font-weight:600;
                      text-decoration:none">
-              Connect MyChart &amp; Schedule
-            </a>"""
+              🔗 Connect MyChart — Auto-Schedule
+            </a>
+            <div style="font-size:11px;color:#15803d;margin-top:4px">
+              Logs in &amp; books the earliest available slot automatically
+            </div>"""
 
         html += f"""
 <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;
@@ -375,26 +492,66 @@ async def epic_callback(
     if resp.status_code != 200:
         return HTMLResponse(_callback_html("error", f"Token exchange failed: {resp.text}"))
 
-    token_data = resp.json()
+    token_data   = resp.json()
+    access_token = token_data["access_token"]
+    patient_id   = token_data.get("patient", "")
+
     sessions[session_id] = {
-        "access_token": token_data["access_token"],
-        "patient_id":   token_data.get("patient", ""),
+        "access_token": access_token,
+        "patient_id":   patient_id,
         "specialty":    pending.get("specialty", ""),
     }
-    return HTMLResponse(_callback_html("success", session_id))
+
+    # ── Auto-book the appointment ─────────────────────────────────────────────
+    result = await auto_book_appointment(
+        access_token = access_token,
+        patient_id   = patient_id,
+        specialty    = pending.get("specialty", ""),
+        timeframe    = pending.get("timeframe", "in 4 weeks"),
+        reason       = pending.get("reason", ""),
+    )
+
+    if "error" in result:
+        return HTMLResponse(_callback_html("error", result["error"]))
+
+    return HTMLResponse(_callback_html("booked", result))
 
 
-def _callback_html(status: str, payload: str) -> str:
-    msg = "Connected to MyChart! You can close this window." if status == "success" else f"Error: {payload}"
-    return f"""<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px">
-<div style="font-size:48px">{"✅" if status == "success" else "❌"}</div>
-<h2>{msg}</h2>
-<script>
-  if (window.opener) {{
-    window.opener.postMessage({{"epic_auth": "{status}", "payload": "{payload}"}}, "*");
-    window.close();
-  }}
-</script>
+def _callback_html(status: str, payload) -> str:
+    if status == "booked":
+        # payload is a dict with appointment details
+        start_raw = payload.get("start", "")
+        try:
+            dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+            friendly = dt.strftime("%A, %B %-d at %-I:%M %p")
+        except Exception:
+            friendly = start_raw
+
+        specialty = payload.get("specialty", "appointment").title()
+        appt_id   = payload.get("appointment_id", "")
+
+        body = f"""
+<div style="font-size:56px">✅</div>
+<h2 style="color:#166534;margin:12px 0 4px">Appointment Booked!</h2>
+<p style="font-size:16px;color:#15803d;margin:0"><b>{specialty}</b></p>
+<p style="font-size:18px;font-weight:700;color:#1e293b;margin:8px 0">{friendly}</p>
+<p style="font-size:12px;color:#94a3b8">Confirmation ID: {appt_id}</p>
+<p style="font-size:13px;color:#64748b;margin-top:16px">
+  This window will close automatically.
+</p>"""
+        script = "setTimeout(() => window.close(), 3000);"
+
+    elif status == "error":
+        body   = f'<div style="font-size:56px">❌</div><h2 style="color:#dc2626">{payload}</h2>'
+        script = ""
+    else:
+        body   = '<div style="font-size:56px">✅</div><h2>Connected to MyChart!</h2>'
+        script = "setTimeout(() => window.close(), 2000);"
+
+    return f"""<!DOCTYPE html><html>
+<body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px;background:#f8fafc">
+  {body}
+  <script>{script}</script>
 </body></html>"""
 
 

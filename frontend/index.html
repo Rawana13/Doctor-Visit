@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Doc Assistant</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f0f4f8;
+      color: #1a202c;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    header .logo {
+      width: 36px;
+      height: 36px;
+      background: #4f46e5;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1a202c;
+    }
+
+    header p {
+      font-size: 13px;
+      color: #718096;
+      margin-top: 1px;
+    }
+
+    .container {
+      max-width: 860px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      border: 1px solid #e2e8f0;
+      padding: 32px;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #4a5568;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Recording UI */
+    .record-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      padding: 16px 0;
+    }
+
+    .record-btn {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      font-size: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+    }
+
+    .record-btn.idle {
+      background: #4f46e5;
+      color: white;
+    }
+
+    .record-btn.idle:hover {
+      background: #4338ca;
+      transform: scale(1.05);
+    }
+
+    .record-btn.recording {
+      background: #e53e3e;
+      color: white;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(229, 62, 62, 0.4); }
+      50% { box-shadow: 0 0 0 16px rgba(229, 62, 62, 0); }
+    }
+
+    .record-status {
+      font-size: 15px;
+      color: #718096;
+      font-weight: 500;
+    }
+
+    .record-status.recording {
+      color: #e53e3e;
+      font-weight: 600;
+    }
+
+    .timer {
+      font-size: 28px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: #2d3748;
+      display: none;
+    }
+
+    .timer.visible { display: block; }
+
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #a0aec0;
+      font-size: 13px;
+      margin: 8px 0;
+    }
+
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #e2e8f0;
+    }
+
+    .upload-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border: 2px dashed #cbd5e0;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #718096;
+      transition: all 0.2s;
+    }
+
+    .upload-label:hover {
+      border-color: #4f46e5;
+      color: #4f46e5;
+      background: #f5f3ff;
+    }
+
+    #file-input { display: none; }
+
+    .process-btn {
+      width: 100%;
+      padding: 14px;
+      background: #4f46e5;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-top: 8px;
+    }
+
+    .process-btn:hover { background: #4338ca; }
+    .process-btn:disabled { background: #a5b4fc; cursor: not-allowed; }
+
+    /* Loading */
+    .loading {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .loading.visible { display: flex; }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #e2e8f0;
+      border-top-color: #4f46e5;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-step {
+      font-size: 14px;
+      color: #718096;
+    }
+
+    /* Results */
+    #results { display: none; }
+    #results.visible { display: block; }
+
+    .summary-text {
+      font-size: 16px;
+      line-height: 1.7;
+      color: #2d3748;
+      background: #f7fafc;
+      padding: 20px;
+      border-radius: 10px;
+      border-left: 4px solid #4f46e5;
+    }
+
+    .diagnosis-badge {
+      display: inline-block;
+      background: #ebf4ff;
+      color: #3182ce;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      margin-top: 12px;
+    }
+
+    .todo-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .todo-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px 16px;
+      background: #f7fafc;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+      font-size: 15px;
+    }
+
+    .todo-check {
+      width: 22px;
+      height: 22px;
+      border: 2px solid #cbd5e0;
+      border-radius: 6px;
+      flex-shrink: 0;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 1px;
+    }
+
+    .todo-check.checked {
+      background: #48bb78;
+      border-color: #48bb78;
+      color: white;
+    }
+
+    .todo-text.done {
+      text-decoration: line-through;
+      color: #a0aec0;
+    }
+
+    .med-card {
+      padding: 16px;
+      background: #fff8f0;
+      border: 1px solid #fbd38d;
+      border-radius: 10px;
+      margin-bottom: 10px;
+    }
+
+    .med-name {
+      font-weight: 700;
+      font-size: 16px;
+      color: #c05621;
+    }
+
+    .med-detail {
+      font-size: 14px;
+      color: #744210;
+      margin-top: 4px;
+    }
+
+    .pickup-badge {
+      display: inline-block;
+      background: #c05621;
+      color: white;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 20px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
+    .appt-card {
+      padding: 16px;
+      background: #f0fff4;
+      border: 1px solid #9ae6b4;
+      border-radius: 10px;
+      margin-bottom: 10px;
+    }
+
+    .appt-specialty {
+      font-weight: 700;
+      font-size: 15px;
+      color: #276749;
+    }
+
+    .appt-detail {
+      font-size: 14px;
+      color: #2f855a;
+      margin-top: 4px;
+    }
+
+    .schedule-btn {
+      margin-top: 10px;
+      padding: 8px 16px;
+      background: #276749;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .schedule-btn:hover { background: #22543d; }
+
+    /* Slot picker modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal {
+      background: white;
+      border-radius: 16px;
+      padding: 28px;
+      width: 480px;
+      max-width: 95vw;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #1a202c;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 22px;
+      cursor: pointer;
+      color: #718096;
+      line-height: 1;
+    }
+
+    .slot-list {
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .slot-btn {
+      padding: 14px 16px;
+      background: #f7fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      cursor: pointer;
+      text-align: left;
+      font-size: 14px;
+      font-weight: 500;
+      color: #2d3748;
+      transition: all 0.15s;
+    }
+
+    .slot-btn:hover {
+      background: #ebf8ff;
+      border-color: #63b3ed;
+      color: #2b6cb0;
+    }
+
+    .slot-loading, .slot-empty, .slot-error {
+      padding: 20px;
+      text-align: center;
+      color: #718096;
+      font-size: 14px;
+    }
+
+    .slot-error { color: #e53e3e; }
+
+    .notes-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .note-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 14px;
+      color: #4a5568;
+      padding: 10px 14px;
+      background: #fffbeb;
+      border-radius: 8px;
+      border: 1px solid #faf089;
+    }
+
+    .note-icon { flex-shrink: 0; }
+
+    .transcript-box {
+      font-size: 13px;
+      line-height: 1.7;
+      color: #718096;
+      background: #f7fafc;
+      padding: 16px;
+      border-radius: 10px;
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #e2e8f0;
+    }
+
+    .toggle-transcript {
+      background: none;
+      border: none;
+      color: #4f46e5;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+      margin-bottom: 10px;
+      padding: 0;
+    }
+
+    .section-empty {
+      font-size: 14px;
+      color: #a0aec0;
+      font-style: italic;
+    }
+
+    .new-visit-btn {
+      width: 100%;
+      padding: 12px;
+      background: white;
+      color: #4f46e5;
+      border: 2px solid #4f46e5;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-top: 8px;
+    }
+
+    .new-visit-btn:hover {
+      background: #f5f3ff;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🩺</div>
+  <div>
+    <h1>Doc Assistant</h1>
+    <p>Record your appointment, get a plain-language summary</p>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Recording Card -->
+  <div class="card" id="record-card">
+    <div class="card-title">🎙️ Record Your Appointment</div>
+
+    <div class="record-area">
+      <button class="record-btn idle" id="record-btn" onclick="toggleRecording()">🎙️</button>
+      <div class="timer" id="timer">0:00</div>
+      <div class="record-status" id="record-status">Tap to start recording</div>
+
+      <div class="divider">or upload an audio file</div>
+
+      <label class="upload-label" for="file-input">
+        📂 Choose audio file
+      </label>
+      <input type="file" id="file-input" accept="audio/*" onchange="handleFileUpload(event)" />
+    </div>
+
+    <button class="process-btn" id="process-btn" onclick="processAudio()" disabled>
+      Analyze Appointment
+    </button>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div class="loading-step" id="loading-step">Transcribing audio...</div>
+  </div>
+
+  <!-- Results -->
+  <div id="results">
+
+    <!-- Summary -->
+    <div class="card">
+      <div class="card-title">📋 Visit Summary</div>
+      <div class="summary-text" id="summary-text"></div>
+      <div id="diagnosis-badge"></div>
+    </div>
+
+    <!-- To-Do List -->
+    <div class="card">
+      <div class="card-title">✅ Your Action Items</div>
+      <ul class="todo-list" id="todo-list"></ul>
+    </div>
+
+    <!-- Medications -->
+    <div class="card" id="med-card">
+      <div class="card-title">💊 Medications</div>
+      <div id="med-list"></div>
+    </div>
+
+    <!-- Follow-up Appointments -->
+    <div class="card" id="appt-card">
+      <div class="card-title">📅 Follow-up Appointments</div>
+      <div id="appt-list"></div>
+    </div>
+
+    <!-- Important Notes -->
+    <div class="card" id="notes-card">
+      <div class="card-title">⚠️ Important Notes</div>
+      <ul class="notes-list" id="notes-list"></ul>
+    </div>
+
+    <!-- Transcript -->
+    <div class="card">
+      <div class="card-title">🗒️ Full Transcript</div>
+      <button class="toggle-transcript" onclick="toggleTranscript()">Show transcript</button>
+      <div class="transcript-box" id="transcript-box" style="display:none"></div>
+    </div>
+
+    <button class="new-visit-btn" onclick="resetApp()">+ Start New Visit</button>
+
+  </div>
+
+</div>
+
+<!-- Slot Picker Modal -->
+<div class="modal-overlay" id="slot-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="slot-modal-title">Available Slots</div>
+      <button class="modal-close" onclick="closeSlotModal()">×</button>
+    </div>
+    <p style="font-size:13px;color:#718096;">Select a time to book via MyChart</p>
+    <div class="slot-list" id="slot-list"></div>
+  </div>
+</div>
+
+<script>
+  const API_BASE = "http://localhost:8000";
+
+  let mediaRecorder = null;
+  let audioChunks = [];
+  let recordedBlob = null;
+  let uploadedFile = null;
+  let timerInterval = null;
+  let seconds = 0;
+  let isRecording = false;
+  let transcriptVisible = false;
+
+  function formatTime(s) {
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  async function toggleRecording() {
+    if (!isRecording) {
+      await startRecording();
+    } else {
+      stopRecording();
+    }
+  }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        uploadedFile = null;
+        document.getElementById('process-btn').disabled = false;
+        stream.getTracks().forEach(t => t.stop());
+      };
+
+      mediaRecorder.start(250);
+      isRecording = true;
+
+      const btn = document.getElementById('record-btn');
+      btn.className = 'record-btn recording';
+      btn.textContent = '⏹️';
+
+      document.getElementById('record-status').textContent = 'Recording...';
+      document.getElementById('record-status').className = 'record-status recording';
+      document.getElementById('timer').classList.add('visible');
+
+      seconds = 0;
+      timerInterval = setInterval(() => {
+        seconds++;
+        document.getElementById('timer').textContent = formatTime(seconds);
+      }, 1000);
+
+    } catch (err) {
+      alert('Microphone access denied. Please allow microphone access and try again.');
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      isRecording = false;
+      clearInterval(timerInterval);
+
+      const btn = document.getElementById('record-btn');
+      btn.className = 'record-btn idle';
+      btn.textContent = '🎙️';
+
+      document.getElementById('record-status').textContent = `Recorded (${formatTime(seconds)}) — ready to analyze`;
+      document.getElementById('record-status').className = 'record-status';
+    }
+  }
+
+  function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (file) {
+      uploadedFile = file;
+      recordedBlob = null;
+      document.getElementById('record-status').textContent = `File selected: ${file.name}`;
+      document.getElementById('process-btn').disabled = false;
+    }
+  }
+
+  async function processAudio() {
+    const audioData = recordedBlob || uploadedFile;
+    if (!audioData) return;
+
+    document.getElementById('record-card').style.opacity = '0.5';
+    document.getElementById('process-btn').disabled = true;
+    document.getElementById('results').classList.remove('visible');
+
+    const loading = document.getElementById('loading');
+    loading.classList.add('visible');
+    document.getElementById('loading-step').textContent = 'Transcribing audio with Whisper...';
+
+    try {
+      // Step 1: Transcribe
+      const formData = new FormData();
+      formData.append('file', audioData, 'recording.webm');
+
+      const transcribeRes = await fetch(`${API_BASE}/transcribe`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!transcribeRes.ok) {
+        const err = await transcribeRes.json();
+        throw new Error(err.detail || 'Transcription failed');
+      }
+
+      const { transcript } = await transcribeRes.json();
+
+      document.getElementById('loading-step').textContent = 'Analyzing with Claude...';
+
+      // Step 2: Analyze
+      const analyzeRes = await fetch(`${API_BASE}/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript })
+      });
+
+      if (!analyzeRes.ok) {
+        const err = await analyzeRes.json();
+        throw new Error(err.detail || 'Analysis failed');
+      }
+
+      const analysis = await analyzeRes.json();
+
+      loading.classList.remove('visible');
+      renderResults(transcript, analysis);
+
+    } catch (err) {
+      loading.classList.remove('visible');
+      document.getElementById('record-card').style.opacity = '1';
+      document.getElementById('process-btn').disabled = false;
+      alert(`Error: ${err.message}`);
+    }
+  }
+
+  function renderResults(transcript, data) {
+    // Summary
+    document.getElementById('summary-text').textContent = data.summary || 'No summary available.';
+
+    if (data.diagnosis_or_reason) {
+      document.getElementById('diagnosis-badge').innerHTML =
+        `<span class="diagnosis-badge">${data.diagnosis_or_reason}</span>`;
+    }
+
+    // To-Do list
+    const todoList = document.getElementById('todo-list');
+    todoList.innerHTML = '';
+
+    const allTodos = [...(data.todos || [])];
+
+    // Add medication pickups to todos
+    (data.medications || []).forEach(med => {
+      if (med.needs_pickup) {
+        allTodos.unshift(`Pick up prescription: ${med.name}`);
+      }
+    });
+
+    // Add appointments to todos
+    (data.follow_up_appointments || []).forEach(appt => {
+      allTodos.push(`Schedule follow-up: ${appt.specialty} (${appt.timeframe})`);
+    });
+
+    if (allTodos.length === 0) {
+      todoList.innerHTML = '<li class="section-empty">No action items found</li>';
+    } else {
+      allTodos.forEach((todo, i) => {
+        const li = document.createElement('li');
+        li.className = 'todo-item';
+        li.innerHTML = `
+          <div class="todo-check" id="check-${i}" onclick="toggleTodo(${i})"></div>
+          <span class="todo-text" id="todo-text-${i}">${todo}</span>
+        `;
+        todoList.appendChild(li);
+      });
+    }
+
+    // Medications
+    const medList = document.getElementById('med-list');
+    medList.innerHTML = '';
+    const meds = data.medications || [];
+
+    if (meds.length === 0) {
+      document.getElementById('med-card').style.display = 'none';
+    } else {
+      meds.forEach(med => {
+        const div = document.createElement('div');
+        div.className = 'med-card';
+        div.innerHTML = `
+          <div class="med-name">
+            ${med.name}
+            ${med.needs_pickup ? '<span class="pickup-badge">Needs pickup</span>' : ''}
+          </div>
+          ${med.dosage ? `<div class="med-detail"><strong>Dosage:</strong> ${med.dosage}</div>` : ''}
+          ${med.instructions ? `<div class="med-detail"><strong>Instructions:</strong> ${med.instructions}</div>` : ''}
+        `;
+        medList.appendChild(div);
+      });
+    }
+
+    // Follow-up appointments
+    const apptList = document.getElementById('appt-list');
+    apptList.innerHTML = '';
+    const appts = data.follow_up_appointments || [];
+
+    if (appts.length === 0) {
+      document.getElementById('appt-card').style.display = 'none';
+    } else {
+      appts.forEach(appt => {
+        const div = document.createElement('div');
+        div.className = 'appt-card';
+        div.innerHTML = `
+          <div class="appt-specialty">${appt.specialty || 'Follow-up'}</div>
+          <div class="appt-detail">${appt.reason || ''}</div>
+          ${appt.timeframe ? `<div class="appt-detail"><strong>When:</strong> ${appt.timeframe}</div>` : ''}
+          <button class="schedule-btn" onclick="scheduleViaMyChart('${appt.specialty}', '${(appt.reason || '').replace(/'/g, '')}')">
+            Schedule via MyChart
+          </button>
+        `;
+        apptList.appendChild(div);
+      });
+    }
+
+    // Important notes
+    const notesList = document.getElementById('notes-list');
+    notesList.innerHTML = '';
+    const notes = data.important_notes || [];
+
+    if (notes.length === 0) {
+      document.getElementById('notes-card').style.display = 'none';
+    } else {
+      notes.forEach(note => {
+        const li = document.createElement('li');
+        li.className = 'note-item';
+        li.innerHTML = `<span class="note-icon">⚠️</span><span>${note}</span>`;
+        notesList.appendChild(li);
+      });
+    }
+
+    // Transcript
+    document.getElementById('transcript-box').textContent = transcript;
+
+    // Show results
+    document.getElementById('results').classList.add('visible');
+    document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function toggleTodo(i) {
+    const check = document.getElementById(`check-${i}`);
+    const text = document.getElementById(`todo-text-${i}`);
+    check.classList.toggle('checked');
+    check.textContent = check.classList.contains('checked') ? '✓' : '';
+    text.classList.toggle('done');
+  }
+
+  function toggleTranscript() {
+    const box = document.getElementById('transcript-box');
+    const btn = document.querySelector('.toggle-transcript');
+    transcriptVisible = !transcriptVisible;
+    box.style.display = transcriptVisible ? 'block' : 'none';
+    btn.textContent = transcriptVisible ? 'Hide transcript' : 'Show transcript';
+  }
+
+  // ── MyChart / Epic FHIR ──────────────────────────────────────────────────
+  let epicSessionId = null;
+  let schedulingSpecialty = null;
+  let schedulingReason = null;
+
+  function scheduleViaMyChart(specialty, reason) {
+    schedulingSpecialty = specialty;
+    schedulingReason = reason || `Follow-up: ${specialty}`;
+
+    if (epicSessionId) {
+      openSlotPicker();
+    } else {
+      openMyChartLogin(specialty);
+    }
+  }
+
+  async function openMyChartLogin(specialty) {
+    try {
+      const res = await fetch(`${API_BASE}/auth/login?specialty=${encodeURIComponent(specialty)}`);
+      const { auth_url, session_id } = await res.json();
+      epicSessionId = session_id;
+
+      const popup = window.open(auth_url, 'mychart_auth', 'width=600,height=700,scrollbars=yes');
+
+      window.addEventListener('message', async function handler(event) {
+        if (event.data && event.data.epic_auth) {
+          window.removeEventListener('message', handler);
+          if (event.data.epic_auth === 'success') {
+            epicSessionId = event.data.payload;
+            updateMyChartStatus('Connected to MyChart');
+            openSlotPicker();
+          } else {
+            alert('MyChart connection failed: ' + event.data.payload);
+            epicSessionId = null;
+          }
+        }
+      });
+    } catch (err) {
+      alert('Could not start MyChart login: ' + err.message);
+    }
+  }
+
+  function updateMyChartStatus(msg) {
+    let bar = document.getElementById('mychart-status');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'mychart-status';
+      bar.style.cssText = 'background:#f0fff4;border:1px solid #9ae6b4;color:#276749;padding:10px 16px;border-radius:10px;font-size:14px;margin-bottom:16px;font-weight:600;';
+      document.getElementById('results').prepend(bar);
+    }
+    bar.textContent = '✓ ' + msg;
+  }
+
+  async function openSlotPicker() {
+    const modal = document.getElementById('slot-modal');
+    const slotList = document.getElementById('slot-list');
+    document.getElementById('slot-modal-title').textContent =
+      `Available slots — ${schedulingSpecialty}`;
+    slotList.innerHTML = '<div class="slot-loading">Loading available times...</div>';
+    modal.style.display = 'flex';
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const future = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+      const res = await fetch(
+        `${API_BASE}/fhir/slots?session_id=${epicSessionId}&specialty=${encodeURIComponent(schedulingSpecialty)}&date_from=${today}&date_to=${future}`
+      );
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail);
+      }
+      const { slots } = await res.json();
+
+      if (slots.length === 0) {
+        slotList.innerHTML = '<div class="slot-empty">No available slots found in the next 30 days.</div>';
+        return;
+      }
+
+      slotList.innerHTML = '';
+      slots.slice(0, 20).forEach(slot => {
+        const dt = new Date(slot.start);
+        const label = dt.toLocaleString('en-US', {
+          weekday: 'short', month: 'short', day: 'numeric',
+          hour: 'numeric', minute: '2-digit', hour12: true
+        });
+        const btn = document.createElement('button');
+        btn.className = 'slot-btn';
+        btn.innerHTML = `<span class="slot-date">${label}</span>`;
+        btn.onclick = () => confirmBooking(slot.id, label);
+        slotList.appendChild(btn);
+      });
+    } catch (err) {
+      slotList.innerHTML = `<div class="slot-error">Error loading slots: ${err.message}</div>`;
+    }
+  }
+
+  async function confirmBooking(slotId, slotLabel) {
+    if (!confirm(`Book appointment:\n\n${schedulingSpecialty}\n${slotLabel}\n\nConfirm?`)) return;
+
+    closeSlotModal();
+    try {
+      const res = await fetch(`${API_BASE}/fhir/appointment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: epicSessionId,
+          slot_id: slotId,
+          specialty: schedulingSpecialty,
+          reason: schedulingReason
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail);
+      }
+      const booked = await res.json();
+      const start = new Date(booked.start).toLocaleString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true
+      });
+      showBookingConfirmation(start);
+    } catch (err) {
+      alert('Booking failed: ' + err.message);
+    }
+  }
+
+  function showBookingConfirmation(dateStr) {
+    const banner = document.createElement('div');
+    banner.style.cssText = 'background:#276749;color:white;padding:16px 20px;border-radius:12px;margin-bottom:16px;font-size:15px;font-weight:600;';
+    banner.innerHTML = `Appointment booked for <strong>${schedulingSpecialty}</strong> on <strong>${dateStr}</strong>`;
+    document.getElementById('results').prepend(banner);
+  }
+
+  function closeSlotModal() {
+    document.getElementById('slot-modal').style.display = 'none';
+  }
+
+  function resetApp() {
+    recordedBlob = null;
+    uploadedFile = null;
+    isRecording = false;
+    clearInterval(timerInterval);
+    seconds = 0;
+
+    document.getElementById('record-btn').className = 'record-btn idle';
+    document.getElementById('record-btn').textContent = '🎙️';
+    document.getElementById('record-status').textContent = 'Tap to start recording';
+    document.getElementById('record-status').className = 'record-status';
+    document.getElementById('timer').classList.remove('visible');
+    document.getElementById('process-btn').disabled = true;
+    document.getElementById('record-card').style.opacity = '1';
+    document.getElementById('results').classList.remove('visible');
+    document.getElementById('file-input').value = '';
+
+    // Reset hidden cards
+    document.getElementById('med-card').style.display = '';
+    document.getElementById('appt-card').style.display = '';
+    document.getElementById('notes-card').style.display = '';
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+</script>
+
+</body>
+</html>

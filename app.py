@@ -386,7 +386,7 @@ def show_transcript(session_state):
 HEADER_HTML = """
 <div style="text-align:center;padding:24px 0 8px">
   <div style="font-size:48px">🩺</div>
-  <h1 style="font-size:28px;font-weight:800;color:#1e293b;margin:8px 0 4px">Doc Assistant</h1>
+  <h1 style="font-size:28px;font-weight:800;color:#1e293b;margin:8px 0 4px">Mira</h1>
   <p style="color:#64748b;font-size:15px;margin:0">
     Record your appointment → get a plain-language summary, action items, and scheduling
   </p>
@@ -398,7 +398,7 @@ HEADER_HTML = """
 
 with gr.Blocks(
     theme=gr.themes.Soft(primary_hue="indigo"),
-    title="Doc Assistant",
+    title="Mira",
     css="""
     .gradio-container { max-width: 860px !important; margin: auto; }
     .gr-button-primary { background: #4f46e5 !important; }
@@ -463,7 +463,7 @@ with gr.Blocks(
 
 
 # ── Mount on FastAPI for Epic OAuth callback ──────────────────────────────────
-fastapi_app = FastAPI(title="Doc Assistant")
+fastapi_app = FastAPI(title="Mira")
 
 @fastapi_app.get("/callback")
 async def epic_callback(

@@ -1,8 +1,8 @@
-# 🩺 Doc Assistant — AI-Powered Doctor Visit Summarizer
+# 🩺 Mira — AI-Powered Doctor Visit Summarizer
 
 > **One patient. One post-visit workflow. One baseline to beat.**
 
-Doc Assistant records a doctor's appointment, transcribes it, and uses Claude to generate a plain-language summary, a structured action checklist, and medication reminders — then optionally schedules follow-up appointments directly via MyChart (Epic FHIR).
+Mira records a doctor's appointment, transcribes it, and uses Claude to generate a plain-language summary, a structured action checklist, and medication reminders — then optionally schedules follow-up appointments directly via MyChart (Epic FHIR).
 
 ---
 
@@ -125,7 +125,7 @@ The app runs at `http://localhost:7860` after setup:
 
 ```
 ┌─────────────────────────────────────────┐
-│  🩺 Doc Assistant                       │
+│  🩺 Mira                                │
 │  Record or upload → Analyze             │
 │                                         │
 │  [🎙️ Record] [📂 Upload]               │
